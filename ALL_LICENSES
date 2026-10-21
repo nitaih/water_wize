@@ -1,0 +1,15 @@
+========================================================================
+WaterWize Project - Third-Party Open Source Licenses
+========================================================================
+
+1. Node.js & npm
+   License: MIT License
+
+2. React & Express
+   License: MIT License
+
+3. Mapbox GL JS
+   License: BSD 3-Clause License / Mapbox Terms of Service
+
+4. PostgreSQL / Prisma ORM
+   License: PostgreSQL License / Apache License 2.0
