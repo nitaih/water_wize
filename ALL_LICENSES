@@ -1,15 +1,16 @@
-========================================================================
-WaterWize Project - Third-Party Open Source Licenses
-========================================================================
+WaterWize - Third Party Licenses & Dependencies
 
-1. Node.js & npm
-   License: MIT License
+Client-side Dependencies:
+- react (MIT)
+- react-dom (MIT)
+- vite (MIT)
+- react-map-gl (MIT)
+- mapbox-gl (BSD-3-Clause / Mapbox TOS)
 
-2. React & Express
-   License: MIT License
-
-3. Mapbox GL JS
-   License: BSD 3-Clause License / Mapbox Terms of Service
-
-4. PostgreSQL / Prisma ORM
-   License: PostgreSQL License / Apache License 2.0
+Server-side Dependencies:
+- express (MIT)
+- cors (MIT)
+- @prisma/client (Apache-2.0)
+- prisma (Apache-2.0)
+- jest (MIT)
+- supertest (MIT)

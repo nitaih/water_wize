@@ -1,0 +1,40 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Pipeline {
+  id           String   @id @default(uuid())
+  name         String
+  material     String
+  diameterMm   Float
+  status       String   @default("active")
+  coordinates  Json
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  sensors      Sensor[]
+}
+
+model Sensor {
+  id         String         @id @default(uuid())
+  code       String         @unique
+  type       String         @default("flow")
+  status     String         @default("online")
+  pipelineId String
+  pipeline   Pipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  readings   SensorReading[]
+  createdAt  DateTime       @default(now())
+}
+
+model SensorReading {
+  id        String   @id @default(uuid())
+  sensorId  String
+  sensor    Sensor   @relation(fields: [sensorId], references: [id], onDelete: Cascade)
+  value     Float
+  unit      String
+  timestamp DateTime @default(now())
+}
