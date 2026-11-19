@@ -1,72 +1,285 @@
 import { PrismaClient } from '@prisma/client';
+import { toFeatureCollection } from '../utils/geojson.js';
 
 const prisma = new PrismaClient();
 
-// שליפת כל החלקות של המשתמש המחובר (או כל החלקות למנהל)
-export const getFields = async (req, res) => {
-  try {
-    const fields = await prisma.field.findMany({
-      where: { userId: req.user.userId }, // מניחים שה-JWT פושט את ה-userId לתוך req.user
-    });
-    res.status(200).json(fields);
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch fields', details: error.message });
-  }
-};
+// פונקציית עזר לוולידציה בסיסית של GeoJSON Polygon
+function isValidGeoJsonPolygon(geom) {
+  return (
+    geom &&
+    typeof geom === 'object' &&
+    geom.type === 'Polygon' &&
+    Array.isArray(geom.coordinates) &&
+    geom.coordinates.length > 0
+  );
+}
 
-// יצירת חלקה חדשה
+// POST /api/farms/:farmId/fields
 export const createField = async (req, res) => {
   try {
-    const { name, location, areaSize } = req.body;
+    const farmId = req.params.farmId || req.params.id;
+    const { name, geometry, areaSize } = req.body;
 
-    if (!name) {
-      return res.status(400).json({ error: 'Field name is required' });
+    if (!name || typeof name !== 'string' || !name.trim()) {
+      return res.status(400).json({
+        success: false,
+        error: 'Field name is required.'
+      });
     }
 
-    const newField = await prisma.field.create({
-      data: {
-        name,
-        location,
-        areaSize: areaSize ? parseFloat(areaSize) : null,
-        userId: req.user.userId,
-      },
-    });
+    if (geometry !== undefined && geometry !== null && !isValidGeoJsonPolygon(geometry)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid GeoJSON Polygon geometry.'
+      });
+    }
 
-    res.status(201).json(newField);
+    const geoJsonString = geometry ? JSON.stringify(geometry) : null;
+
+    // אם הגיעה גיאומטריה, נחשב שטח ב-PostGIS (במ"ר) אם לא הועבר areaSize במפורש
+    const rows = await prisma.$queryRaw`
+      INSERT INTO "Field" (
+        "id",
+        "name",
+        "areaSize",
+        "farmId",
+        "geometry",
+        "createdAt",
+        "updatedAt"
+      )
+      VALUES (
+        gen_random_uuid()::text,
+        ${name.trim()},
+        COALESCE(
+          ${typeof areaSize === 'number' ? areaSize : null}::double precision,
+          CASE
+            WHEN ${geoJsonString}::text IS NOT NULL
+            THEN ST_Area(ST_SetSRID(ST_GeomFromGeoJSON(${geoJsonString}), 4326)::geography)
+            ELSE NULL
+          END
+        ),
+        ${farmId},
+        CASE
+          WHEN ${geoJsonString}::text IS NOT NULL
+          THEN ST_SetSRID(ST_GeomFromGeoJSON(${geoJsonString}), 4326)
+          ELSE NULL
+        END,
+        NOW(),
+        NOW()
+      )
+      RETURNING
+        "id",
+        "name",
+        "areaSize",
+        "farmId",
+        ST_AsGeoJSON("geometry")::json AS "geometry",
+        "createdAt",
+        "updatedAt";
+    `;
+
+    return res.status(201).json({
+      success: true,
+      data: rows[0]
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to create field', details: error.message });
+    console.error('createField error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to create field.'
+    });
   }
 };
 
-// שליפת חלקה בודדת לפי ID
+// GET /api/farms/:farmId/fields
+export const getFieldsByFarm = async (req, res) => {
+  try {
+    const farmId = req.params.farmId || req.params.id;
+    const { format } = req.query;
+
+    const fields = await prisma.$queryRaw`
+      SELECT
+        "id",
+        "name",
+        "areaSize",
+        "farmId",
+        ST_AsGeoJSON("geometry")::json AS "geometry",
+        "createdAt",
+        "updatedAt"
+      FROM "Field"
+      WHERE "farmId" = ${farmId}
+      ORDER BY "createdAt" DESC;
+    `;
+
+    if (format === 'geojson') {
+      const featureCollection = toFeatureCollection(fields, (field) => ({
+        id: field.id,
+        layer: 'field',
+        name: field.name,
+        areaSize: field.areaSize,
+        farmId: field.farmId,
+        createdAt: field.createdAt,
+        updatedAt: field.updatedAt
+      }));
+
+      return res.status(200).json(featureCollection);
+    }
+
+    return res.status(200).json({
+      success: true,
+      count: fields.length,
+      data: fields
+    });
+  } catch (error) {
+    console.error('getFieldsByFarm error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch fields.'
+    });
+  }
+};
+
+// GET /api/farms/:farmId/fields/:fieldId
 export const getFieldById = async (req, res) => {
   try {
-    const { id } = req.params;
-    const field = await prisma.field.findUnique({
-      where: { id },
-    });
+    const farmId = req.params.farmId || req.params.id;
+    const { fieldId } = req.params;
 
-    if (!field) {
-      return res.status(404).json({ error: 'Field not found' });
+    const rows = await prisma.$queryRaw`
+      SELECT
+        "id",
+        "name",
+        "areaSize",
+        "farmId",
+        ST_AsGeoJSON("geometry")::json AS "geometry",
+        "createdAt",
+        "updatedAt"
+      FROM "Field"
+      WHERE "id" = ${fieldId} AND "farmId" = ${farmId}
+      LIMIT 1;
+    `;
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        error: 'Field not found in this farm.'
+      });
     }
 
-    res.status(200).json(field);
+    return res.status(200).json({
+      success: true,
+      data: rows[0]
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch field', details: error.message });
+    console.error('getFieldById error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to fetch field.'
+    });
   }
 };
 
-// מחיקת חלקה
-export const deleteField = async (req, res) => {
+// PUT /api/farms/:farmId/fields/:fieldId
+export const updateField = async (req, res) => {
   try {
-    const { id } = req.params;
-    
-    await prisma.field.delete({
-      where: { id },
+    const farmId = req.params.farmId || req.params.id;
+    const { fieldId } = req.params;
+    const { name, geometry, areaSize } = req.body;
+
+    if (geometry !== undefined && geometry !== null && !isValidGeoJsonPolygon(geometry)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid GeoJSON Polygon geometry.'
+      });
+    }
+
+    const existing = await prisma.field.findFirst({
+      where: { id: fieldId, farmId },
+      select: { id: true }
     });
 
-    res.status(200).json({ message: 'Field deleted successfully' });
+    if (!existing) {
+      return res.status(404).json({
+        success: false,
+        error: 'Field not found in this farm.'
+      });
+    }
+
+    const shouldUpdateGeom = geometry !== undefined;
+    const geoJsonString = geometry ? JSON.stringify(geometry) : null;
+    const hasExplicitArea = typeof areaSize === 'number';
+
+    const rows = await prisma.$queryRaw`
+      UPDATE "Field"
+      SET
+        "name" = COALESCE(${name ?? null}::text, "name"),
+        "geometry" = CASE
+          WHEN ${shouldUpdateGeom}::boolean THEN
+            CASE
+              WHEN ${geoJsonString}::text IS NOT NULL
+              THEN ST_SetSRID(ST_GeomFromGeoJSON(${geoJsonString}), 4326)
+              ELSE NULL
+            END
+          ELSE "geometry"
+        END,
+        "areaSize" = CASE
+          WHEN ${hasExplicitArea}::boolean THEN ${areaSize ?? null}::double precision
+          WHEN ${shouldUpdateGeom}::boolean AND ${geoJsonString}::text IS NOT NULL
+            THEN ST_Area(ST_SetSRID(ST_GeomFromGeoJSON(${geoJsonString}), 4326)::geography)
+          WHEN ${shouldUpdateGeom}::boolean AND ${geoJsonString}::text IS NULL
+            THEN NULL
+          ELSE "areaSize"
+        END,
+        "updatedAt" = NOW()
+      WHERE "id" = ${fieldId} AND "farmId" = ${farmId}
+      RETURNING
+        "id",
+        "name",
+        "areaSize",
+        "farmId",
+        ST_AsGeoJSON("geometry")::json AS "geometry",
+        "createdAt",
+        "updatedAt";
+    `;
+
+    return res.status(200).json({
+      success: true,
+      data: rows[0]
+    });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete field', details: error.message });
+    console.error('updateField error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to update field.'
+    });
+  }
+};
+
+// DELETE /api/farms/:farmId/fields/:fieldId
+export const deleteField = async (req, res) => {
+  try {
+    const farmId = req.params.farmId || req.params.id;
+    const { fieldId } = req.params;
+
+    const deleted = await prisma.field.deleteMany({
+      where: { id: fieldId, farmId }
+    });
+
+    if (deleted.count === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Field not found in this farm.'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: 'Field deleted successfully.'
+    });
+  } catch (error) {
+    console.error('deleteField error:', error);
+    return res.status(500).json({
+      success: false,
+      error: 'Failed to delete field.'
+    });
   }
 };

@@ -5,8 +5,14 @@ import cors from 'cors';
 import morgan from 'morgan';
 import fs from 'fs';
 import { PrismaClient } from '@prisma/client';
+
 import authRoutes from './routes/authRoutes.js';
 import farmRoutes from './routes/farmRoutes.js';
+import fieldRoutes from './routes/fieldRoutes.js';
+import pipelineRoutes from './routes/pipelineRoutes.js';
+import accessoryRoutes from './routes/accessoryRoutes.js';
+import maintenanceLogRoutes from './routes/maintenanceLogRoutes.js';
+import importRoutes from './routes/importRoutes.js';
 
 // יצירת __dirname מחדש עבור ES Modules
 const __filename = fileURLToPath(import.meta.url);
@@ -37,6 +43,11 @@ app.use(morgan('combined', { stream: accessLogStream }));
 // ראוטים
 app.use('/api/auth', authRoutes);
 app.use('/api/farms', farmRoutes);
+app.use('/api/farms/:farmId/fields', fieldRoutes);
+app.use('/api/farms/:farmId/pipelines', pipelineRoutes);
+app.use('/api/farms/:farmId/accessories', accessoryRoutes);
+app.use('/api/farms/:farmId/maintenance-logs', maintenanceLogRoutes);
+app.use('/api/farms/:farmId/import', importRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {

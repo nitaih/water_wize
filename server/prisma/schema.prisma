@@ -74,10 +74,11 @@ model Field {
   farmId    String
   farm      Farm                                     @relation(fields: [farmId], references: [id], onDelete: Cascade)
   pipelines Pipeline[]
-  geometry  Unsupported("geometry(Polygon, 4326)")?
+  geometry  Unsupported("geometry(Polygon, 4326)")
   createdAt DateTime                                 @default(now())
   updatedAt DateTime                                 @updatedAt
 
+  @@index([farmId])
   @@index([geometry], name: "field_geometry_idx", type: Gist)
 }
 
@@ -95,10 +96,11 @@ model Pipeline {
   createdBy   User                                        @relation("PipelineCreator", fields: [createdById], references: [id])
   accessories Accessory[]
   logs        MaintenanceLog[]
-  geometry    Unsupported("geometry(LineString, 4326)")?
+  geometry    Unsupported("geometry(LineString, 4326)")
   createdAt   DateTime                                    @default(now())
   updatedAt   DateTime                                    @updatedAt
 
+  @@index([farmId])
   @@index([geometry], name: "pipeline_geometry_idx", type: Gist)
 }
 
@@ -111,10 +113,11 @@ model Accessory {
   pipelineId String?
   pipeline   Pipeline?                              @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
   logs       MaintenanceLog[]
-  geometry   Unsupported("geometry(Point, 4326)")?
+  geometry   Unsupported("geometry(Point, 4326)")
   createdAt  DateTime                               @default(now())
   updatedAt  DateTime                               @updatedAt
 
+  @@index([farmId])
   @@index([geometry], name: "accessory_geometry_idx", type: Gist)
 }
 
