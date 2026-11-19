@@ -1,40 +1,132 @@
-datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["postgresqlExtensions"]
 }
 
-generator client {
-  provider = "prisma-client-js"
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [postgis]
+}
+
+enum Role {
+  CREATOR // יוצר מיפוי ותשתיות, עורך וצופה
+  EDITOR  // עורך קווים קיימים והיסטוריית תיקון תקלות
+  VIEWER  // צופה במפה ומנווט לנקודות עניין
+}
+
+enum WaterType {
+  POTABLE   // מים שפירים
+  RECLAIMED // מי קולחין
+  BRACKISH  // מים מליחים
+  DRAINAGE  // ניקוז
+}
+
+enum AccessoryType {
+  VALVE    // ברז / מגוף
+  METER    // מד מים
+  BACKFLOW // מז"ח
+  PUMP     // משאבה
+  OTHER    // אחר
+}
+
+model User {
+  id               String           @id @default(uuid())
+  email            String           @unique
+  password         String
+  name             String?
+  farms            UserFarm[]
+  createdPipelines Pipeline[]       @relation("PipelineCreator")
+  maintenanceLogs  MaintenanceLog[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+}
+
+model Farm {
+  id          String      @id @default(uuid())
+  name        String
+  description String?
+  location    String?
+  users       UserFarm[]
+  fields      Field[]
+  pipelines   Pipeline[]
+  accessories Accessory[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+model UserFarm {
+  id     String @id @default(uuid())
+  userId String
+  farmId String
+  role   Role   @default(VIEWER)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  farm Farm @relation(fields: [farmId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, farmId])
+}
+
+model Field {
+  id        String                                   @id @default(uuid())
+  name      String
+  areaSize  Float?
+  farmId    String
+  farm      Farm                                     @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  pipelines Pipeline[]
+  geometry  Unsupported("geometry(Polygon, 4326)")?
+  createdAt DateTime                                 @default(now())
+  updatedAt DateTime                                 @updatedAt
+
+  @@index([geometry], name: "field_geometry_idx", type: Gist)
 }
 
 model Pipeline {
-  id           String   @id @default(uuid())
-  name         String
-  material     String
-  diameterMm   Float
-  status       String   @default("active")
-  coordinates  Json
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  sensors      Sensor[]
+  id          String                                      @id @default(uuid())
+  name        String?
+  diameter    Float?                                      // קוטר (מ"מ / צול)
+  material    String?                                     // חומר הצנרת (פוליאתילן, PVC, פלב"ם וכו')
+  waterType   WaterType                                   @default(POTABLE)
+  farmId      String
+  farm        Farm                                        @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  fieldId     String?
+  field       Field?                                      @relation(fields: [fieldId], references: [id], onDelete: SetNull)
+  createdById String
+  createdBy   User                                        @relation("PipelineCreator", fields: [createdById], references: [id])
+  accessories Accessory[]
+  logs        MaintenanceLog[]
+  geometry    Unsupported("geometry(LineString, 4326)")?
+  createdAt   DateTime                                    @default(now())
+  updatedAt   DateTime                                    @updatedAt
+
+  @@index([geometry], name: "pipeline_geometry_idx", type: Gist)
 }
 
-model Sensor {
-  id         String         @id @default(uuid())
-  code       String         @unique
-  type       String         @default("flow")
-  status     String         @default("online")
-  pipelineId String
-  pipeline   Pipeline       @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
-  readings   SensorReading[]
-  createdAt  DateTime       @default(now())
+model Accessory {
+  id         String                                 @id @default(uuid())
+  name       String
+  type       AccessoryType
+  farmId     String
+  farm       Farm                                   @relation(fields: [farmId], references: [id], onDelete: Cascade)
+  pipelineId String?
+  pipeline   Pipeline?                              @relation(fields: [pipelineId], references: [id], onDelete: SetNull)
+  logs       MaintenanceLog[]
+  geometry   Unsupported("geometry(Point, 4326)")?
+  createdAt  DateTime                               @default(now())
+  updatedAt  DateTime                               @updatedAt
+
+  @@index([geometry], name: "accessory_geometry_idx", type: Gist)
 }
 
-model SensorReading {
-  id        String   @id @default(uuid())
-  sensorId  String
-  sensor    Sensor   @relation(fields: [sensorId], references: [id], onDelete: Cascade)
-  value     Float
-  unit      String
-  timestamp DateTime @default(now())
+model MaintenanceLog {
+  id          String     @id @default(uuid())
+  description String
+  date        DateTime   @default(now())
+  userId      String
+  user        User       @relation(fields: [userId], references: [id])
+  pipelineId  String?
+  pipeline    Pipeline?  @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  accessoryId String?
+  accessory   Accessory? @relation(fields: [accessoryId], references: [id], onDelete: Cascade)
+  createdAt   DateTime   @default(now())
 }
