@@ -86,4 +86,27 @@ async function login(req, res) {
     res.status(500).json({ error: 'Internal server error' });
   }
 }
+// server/controllers/authController.js (או ב-authRoutes.js)
+export const getMe = async (req, res) => {
+  try {
+    const userId = req.user?.id || req.user?.userId;
+    if (!userId) {
+      return res.status(401).json({ success: false, error: 'Unauthorized' });
+    }
+
+    const user = await prisma.user.findUnique({
+      where: { id: userId },
+      select: { id: true, name: true, email: true } // התאם לשדות הקיימים במודל User
+    });
+
+    if (!user) {
+      return res.status(404).json({ success: false, error: 'User not found' });
+    }
+
+    return res.status(200).json({ success: true, data: user });
+  } catch (error) {
+    console.error('getMe error:', error);
+    return res.status(500).json({ success: false, error: 'Failed to fetch current user' });
+  }
+};
 export { register, login };
